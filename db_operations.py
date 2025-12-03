@@ -165,6 +165,58 @@ def obtener_programacion_df(db: Session = None):
         if should_close:
             db.close()
 
+def obtener_programacion_completa_df(db: Session = None):
+    """Obtiene todas las programaciones con todos los campos como DataFrame"""
+    # Crear sesión propia si no se proporciona una
+    if db is None:
+        db = SessionLocal()
+        should_close = True
+    else:
+        should_close = False
+
+    try:
+        programaciones = db.query(
+            ProgramacionPresupuestal.año.label('Año'),
+            UnidadEjecutora.codigo.label('UE'),
+            MetaPresupuestal.codigo.label('Meta_Codigo'),
+            MetaPresupuestal.descripcion.label('Meta'),
+            ProgramacionPresupuestal.clasificador.label('Clasificador'),
+            ProgramacionPresupuestal.descripcion_clasificador.label('Descripción'),
+            ProgramacionPresupuestal.pim.label('PIM'),
+            ProgramacionPresupuestal.certificado.label('Certificado'),
+            ProgramacionPresupuestal.pim_por_certificar.label('PIM_Por_Certificar'),
+            ProgramacionPresupuestal.compromiso_anual.label('Compromiso_Anual'),
+            ProgramacionPresupuestal.devengado_acumulado.label('Devengado'),
+            ProgramacionPresupuestal.compromiso_por_devengar.label('Compromiso_Por_Devengar'),
+            ProgramacionPresupuestal.pim_por_devengar.label('PIM_Por_Devengar'),
+            ProgramacionPresupuestal.total_anual.label('Total_Anual'),
+            ProgramacionPresupuestal.saldo.label('Saldo')
+        ).join(UnidadEjecutora).outerjoin(MetaPresupuestal).all()
+
+        df = pd.DataFrame([{
+            'Año': p.Año,
+            'UE': p.UE,
+            'Meta_Codigo': p.Meta_Codigo if p.Meta_Codigo else '',
+            'Meta': p.Meta if p.Meta else 'Sin Meta',
+            'Clasificador': p.Clasificador if p.Clasificador else '',
+            'Descripción': p.Descripción,
+            'PIM': p.PIM,
+            'Certificado': p.Certificado,
+            'PIM_Por_Certificar': p.PIM_Por_Certificar,
+            'Compromiso_Anual': p.Compromiso_Anual,
+            'Devengado': p.Devengado,
+            'Compromiso_Por_Devengar': p.Compromiso_Por_Devengar,
+            'PIM_Por_Devengar': p.PIM_Por_Devengar,
+            'Total_Anual': p.Total_Anual,
+            'Saldo': p.Saldo,
+            'Ejecución_%': round((p.Certificado / p.PIM * 100) if p.PIM > 0 else 0, 2)
+        } for p in programaciones])
+
+        return df
+    finally:
+        if should_close:
+            db.close()
+
 def obtener_alertas(db: Session):
     """Obtiene todas las alertas activas"""
     return db.query(Alerta).filter(Alerta.activo == True).all()

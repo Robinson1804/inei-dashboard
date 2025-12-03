@@ -10,6 +10,13 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak, Image
 from reportlab.lib.units import inch
 import xlsxwriter
+import sys
+import os
+
+# Agregar el directorio raíz al path para importar componentes
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from components import init_page, render_navbar, render_footer, render_metric_inei, get_global_styles
 from database import SessionLocal, UnidadEjecutora
 from db_operations import (
     inicializar_datos_ejemplo,
@@ -23,33 +30,61 @@ from db_operations import (
 )
 from database import SessionLocal as DirectSessionLocal
 
-st.set_page_config(page_title="Dashboard de Adquisiciones", layout="wide", initial_sidebar_state="expanded")
+# Inicializar página con componentes
+init_page("Dashboard de Adquisiciones", initial_sidebar_state="collapsed")
 
-# Estilos CSS personalizados - Fondo azul INEI para métricas
-st.markdown("""
-<style>
-    /* Estilo azul INEI para las métricas del resumen ejecutivo */
-    .metric-inei {
-        background: #1f4e78;
-        padding: 20px;
-        border-radius: 10px;
-        color: white;
-        text-align: center;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        margin-bottom: 10px;
+# Renderizar Navbar
+render_navbar(
+    title="Dashboard de Adquisiciones",
+    show_buttons=True,
+    active_page="dashboard"
+)
+
+# ============================================================
+# CONFIGURACIÓN DE GRÁFICOS - Textos grandes para pantalla completa
+# ============================================================
+CHART_CONFIG = {
+    'displayModeBar': True,
+    'displaylogo': False,
+    'modeBarButtonsToAdd': ['fullscreen'],
+    'toImageButtonOptions': {
+        'format': 'png',
+        'filename': 'grafico_inei',
+        'height': 800,
+        'width': 1200,
+        'scale': 2
     }
-    .metric-inei .metric-label {
-        font-size: 14px;
-        font-weight: 500;
-        opacity: 0.9;
-        margin-bottom: 8px;
+}
+
+def get_chart_layout(title: str, height: int = 450) -> dict:
+    """Retorna configuración de layout para gráficos con textos grandes"""
+    return {
+        'title': {
+            'text': title,
+            'font': {'size': 20, 'color': '#1f2937', 'family': 'Inter, sans-serif'},
+            'x': 0.5,
+            'xanchor': 'center'
+        },
+        'font': {'size': 14, 'family': 'Inter, sans-serif'},
+        'height': height,
+        'margin': {'t': 60, 'b': 60, 'l': 60, 'r': 40},
+        'legend': {
+            'font': {'size': 13},
+            'orientation': 'h',
+            'yanchor': 'bottom',
+            'y': -0.2,
+            'xanchor': 'center',
+            'x': 0.5
+        },
+        'xaxis': {
+            'tickfont': {'size': 12},
+            'titlefont': {'size': 14}
+        },
+        'yaxis': {
+            'tickfont': {'size': 12},
+            'titlefont': {'size': 14}
+        }
     }
-    .metric-inei .metric-value {
-        font-size: 28px;
-        font-weight: 700;
-    }
-</style>
-""", unsafe_allow_html=True)
 
 @st.cache_data(ttl=60)
 def cargar_datos_adquisiciones():
@@ -85,7 +120,7 @@ def mostrar_detalle_adquisicion(codigo_adquisicion):
 
         with col_a:
             if detalle:
-                st.metric("Requerimientos", f"{detalle.requerimientos_adquiridos}/{detalle.requerimientos_total}")
+                st.metric("Entregables", f"{detalle.requerimientos_adquiridos}/{detalle.requerimientos_total}")
 
         with col_b:
             st.metric("Estado", adq.estado)
@@ -102,7 +137,12 @@ def mostrar_detalle_adquisicion(codigo_adquisicion):
         st.divider()
 
         if procesos:
-            st.subheader("Timeline del Proceso")
+            # Header con toggle de expandir
+            col_title, col_expand = st.columns([4, 1])
+            with col_title:
+                st.subheader("Timeline del Proceso")
+            with col_expand:
+                expand_timeline = st.toggle("Ampliar", key="toggle_expand_timeline", help="Expandir gráfico")
 
             df_procesos = pd.DataFrame([{
                 'Orden': p.orden,
@@ -114,6 +154,24 @@ def mostrar_detalle_adquisicion(codigo_adquisicion):
                 'Responsable': p.responsable_correo
             } for p in procesos])
 
+            # Configuración según si está expandido o no
+            if expand_timeline:
+                chart_height = 650
+                title_size = 22
+                font_size = 15
+                tick_size = 14
+                axis_title_size = 16
+                legend_size = 14
+                text_size = 13
+            else:
+                chart_height = 420
+                title_size = 18
+                font_size = 13
+                tick_size = 12
+                axis_title_size = 14
+                legend_size = 12
+                text_size = 11
+
             fig_timeline = px.timeline(
                 df_procesos,
                 x_start='Fecha_Inicio',
@@ -121,19 +179,59 @@ def mostrar_detalle_adquisicion(codigo_adquisicion):
                 y='Hito',
                 color='Area',
                 hover_data=['Dias', 'Responsable'],
-                title="Flujo de Proceso de Adquisición",
                 color_discrete_map={'OTIN': '#FFB84D', 'OTA': '#90EE90'}
             )
 
             fig_timeline.update_layout(
-                height=400,
-                yaxis={'categoryorder': 'array', 'categoryarray': df_procesos['Hito'].tolist()[::-1]},
-                xaxis_title="Fecha",
-                yaxis_title="",
+                title={
+                    'text': 'Flujo de Proceso de Adquisición',
+                    'font': {'size': title_size, 'color': '#1f2937', 'family': 'Inter, sans-serif'},
+                    'x': 0.5,
+                    'xanchor': 'center'
+                },
+                font={'size': font_size, 'family': 'Inter, sans-serif'},
+                height=chart_height,
+                margin={'t': 60, 'b': 100, 'l': 30, 'r': 30},
+                yaxis={
+                    'categoryorder': 'array',
+                    'categoryarray': df_procesos['Hito'].tolist()[::-1],
+                    'tickfont': {'size': tick_size}
+                },
+                xaxis={
+                    'title': {'text': 'Fecha', 'font': {'size': axis_title_size}},
+                    'tickfont': {'size': tick_size - 1}
+                },
+                legend={
+                    'font': {'size': legend_size},
+                    'orientation': 'h',
+                    'yanchor': 'bottom',
+                    'y': -0.18,
+                    'xanchor': 'center',
+                    'x': 0.5
+                },
                 showlegend=True
             )
 
-            st.plotly_chart(fig_timeline, use_container_width=True)
+            # Actualizar tamaño de texto en las barras del timeline
+            fig_timeline.update_traces(
+                textfont_size=text_size
+            )
+
+            # Configuración para la barra de herramientas de Plotly
+            modal_chart_config = {
+                'displayModeBar': True,
+                'displaylogo': False,
+                'modeBarButtonsToRemove': ['lasso2d', 'select2d'],
+                'toImageButtonOptions': {
+                    'format': 'png',
+                    'filename': 'timeline_proceso',
+                    'height': 800,
+                    'width': 1400,
+                    'scale': 2
+                }
+            }
+
+            st.plotly_chart(fig_timeline, use_container_width=True, config=modal_chart_config)
 
             total_dias = sum(p.dias_transcurridos for p in procesos)
             st.metric("**Total de Días del Proceso**", f"{total_dias} días")
@@ -159,6 +257,7 @@ def mostrar_detalle_adquisicion(codigo_adquisicion):
     finally:
         db.close()
 
+# Cargar datos
 df_adquisiciones = cargar_datos_adquisiciones()
 
 # Verificar si hay un código de adquisición en la URL (query param)
@@ -169,63 +268,80 @@ codigo_adq_url = query_params.get("adq", None)
 if codigo_adq_url:
     mostrar_detalle_adquisicion(codigo_adq_url)
 
-# Botón para volver a la landing page
-col_back, col_title = st.columns([1, 5])
-with col_back:
-    if st.button("← Volver"):
-        st.switch_page("app.py")
+# ============================================================
+# FILTROS EN LA PARTE SUPERIOR
+# ============================================================
 
-st.title("Dashboard de Adquisiciones")
-
-st.sidebar.header("🔍 Filtros")
+# Inicializar variables de filtros
+año_seleccionado = "Todos"
+meta_seleccionada = []
+ue_seleccionada = []
+tipo_servicio_seleccionado = []
+estado_seleccionado = []
 
 if len(df_adquisiciones) == 0:
-     st.warning("⚠️ No hay datos cargados. Por favor, importe un archivo de programación en la pestaña 'Importar/Exportar'")
+    st.warning("⚠️ No hay datos cargados. Por favor, importe un archivo de programación en la pestaña 'Importar/Exportar'")
 else:
-    años_disponibles = sorted(df_adquisiciones['Año'].unique())
-    opciones_año = ["Todos"] + list(años_disponibles)
-    indice_default = opciones_año.index(2025) if 2025 in años_disponibles else 0
-    año_seleccionado = st.sidebar.selectbox(
-         "Seleccionar Año",
-         options=opciones_año,
-         index=indice_default
-    )
+    # Contenedor de filtros usando expander de Streamlit
+    with st.expander("🔍 **Filtros de Búsqueda**", expanded=True):
+        # Primera fila de filtros
+        col_f1, col_f2, col_f3 = st.columns([1, 2, 2])
 
-    metas_disponibles = sorted(df_adquisiciones['Meta'].unique())
-    meta_seleccionada = st.sidebar.multiselect(
-        "Seleccionar Meta",
-        options=metas_disponibles,
-        default=metas_disponibles[:5] if len(metas_disponibles) > 5 else metas_disponibles
-    )
+        with col_f1:
+            años_disponibles = sorted(df_adquisiciones['Año'].unique())
+            opciones_año = ["Todos"] + list(años_disponibles)
+            indice_default = opciones_año.index(2025) if 2025 in años_disponibles else 0
+            año_seleccionado = st.selectbox(
+                "Año",
+                options=opciones_año,
+                index=indice_default,
+                key="filtro_año"
+            )
 
-    ues_disponibles = sorted(df_adquisiciones['UE'].unique())
-    ue_seleccionada = st.sidebar.multiselect(
-        "Seleccionar DDNNTT",
-        options=ues_disponibles,
-        default=ues_disponibles
-    )
+        with col_f2:
+            ues_disponibles = sorted(df_adquisiciones['UE'].unique())
+            ue_seleccionada = st.multiselect(
+                "DDNNTT (Unidad Ejecutora)",
+                options=ues_disponibles,
+                default=ues_disponibles,
+                key="filtro_ue"
+            )
 
-    if len(df_adquisiciones) > 0:
-        tipos_permitidos = ['BIEN', 'SERVICIO']
-        tipos_en_datos = [t for t in tipos_permitidos if t in df_adquisiciones['Tipo_Servicio'].values]
-        tipo_servicio_seleccionado = st.sidebar.multiselect(
-            "Tipo (Bien/Servicio)",
-            options=tipos_permitidos,
-            default=tipos_en_datos
-        )
+        with col_f3:
+            metas_disponibles = sorted(df_adquisiciones['Meta'].unique())
+            meta_seleccionada = st.multiselect(
+                "Meta Presupuestal",
+                options=metas_disponibles,
+                default=metas_disponibles[:5] if len(metas_disponibles) > 5 else metas_disponibles,
+                key="filtro_meta"
+            )
 
-        estados_permitidos = ['EN PROCESO', 'CULMINADO', 'CANCELADO', 'HISTORICO', 'NO INICIADO']
-        estados_en_datos = [e for e in estados_permitidos if e in df_adquisiciones['Estado'].values]
-        estado_seleccionado = st.sidebar.multiselect(
-            "Estado",
-            options=estados_permitidos,
-            default=estados_en_datos
-        )
-    else:
-        tipo_servicio_seleccionado = []
-        estado_seleccionado = []
+        # Segunda fila de filtros
+        col_f4, col_f5 = st.columns(2)
 
-    st.sidebar.markdown("---")
+        with col_f4:
+            tipos_permitidos = ['BIEN', 'SERVICIO']
+            tipos_en_datos = [t for t in tipos_permitidos if t in df_adquisiciones['Tipo_Servicio'].values]
+            tipo_servicio_seleccionado = st.multiselect(
+                "Tipo (Bien/Servicio)",
+                options=tipos_permitidos,
+                default=tipos_en_datos,
+                key="filtro_tipo"
+            )
+
+        with col_f5:
+            estados_permitidos = ['EN PROCESO', 'CULMINADO', 'CANCELADO', 'HISTORICO', 'NO INICIADO']
+            estados_en_datos = [e for e in estados_permitidos if e in df_adquisiciones['Estado'].values]
+            estado_seleccionado = st.multiselect(
+                "Estado",
+                options=estados_permitidos,
+                default=estados_en_datos,
+                key="filtro_estado"
+            )
+
+# ============================================================
+# TABS PRINCIPALES
+# ============================================================
 
 tabs = st.tabs([
     "🛒 Adquisiciones",
@@ -253,76 +369,77 @@ with tabs[0]:
         if estado_seleccionado:
             df_adq_filtrado = df_adq_filtrado[df_adq_filtrado['Estado'].isin(estado_seleccionado)]
 
+        # ============================================================
+        # RESUMEN EJECUTIVO
+        # ============================================================
         st.subheader("Resumen Ejecutivo")
 
         col1, col2, col3, col4, col5 = st.columns(5)
 
         with col1:
             total_adquisiciones = len(df_adq_filtrado)
-            st.markdown(f"""
-            <div class="metric-inei">
-                <div class="metric-label">Total<br>Requerimientos</div>
-                <div class="metric-value">{total_adquisiciones:,}</div>
-            </div>
-            """, unsafe_allow_html=True)
+            render_metric_inei("Total<br>Requerimientos", f"{total_adquisiciones:,}")
 
         with col2:
             total_culminados = len(df_adq_filtrado[df_adq_filtrado['Estado'] == 'CULMINADO'])
-            st.markdown(f"""
-            <div class="metric-inei">
-                <div class="metric-label">Total Adquiridos<br>(Culminados)</div>
-                <div class="metric-value">{total_culminados:,}</div>
-            </div>
-            """, unsafe_allow_html=True)
+            render_metric_inei("Total Adquiridos<br>(Culminados)", f"{total_culminados:,}")
 
         with col3:
             total_referencial = df_adq_filtrado['Monto_Referencial'].sum()
-            st.markdown(f"""
-            <div class="metric-inei">
-                <div class="metric-label">Monto Total<br>(PIM)</div>
-                <div class="metric-value">S/ {total_referencial:,.2f}</div>
-            </div>
-            """, unsafe_allow_html=True)
+            render_metric_inei("Monto Total<br>(PIM)", f"S/ {total_referencial:,.2f}")
 
         with col4:
             monto_culminados = df_adq_filtrado[df_adq_filtrado['Estado'] == 'CULMINADO']['Monto_Adjudicado'].sum()
-            st.markdown(f"""
-            <div class="metric-inei">
-                <div class="metric-label">Monto Adquiridos<br>(Culminados)</div>
-                <div class="metric-value">S/ {monto_culminados:,.2f}</div>
-            </div>
-            """, unsafe_allow_html=True)
+            render_metric_inei("Monto Adquiridos<br>(Culminados)", f"S/ {monto_culminados:,.2f}")
 
         with col5:
             pct_avance = (monto_culminados / total_referencial * 100) if total_referencial > 0 else 0
-            st.markdown(f"""
-            <div class="metric-inei">
-                <div class="metric-label">% Avance<br>(Adqui. / PIM)</div>
-                <div class="metric-value">{pct_avance:.1f}%</div>
-            </div>
-            """, unsafe_allow_html=True)
+            render_metric_inei("% Avance<br>(Adqui. / PIM)", f"{pct_avance:.1f}%")
 
         st.markdown("---")
 
+        # ============================================================
+        # GRÁFICOS
+        # ============================================================
         col1, col2 = st.columns(2)
 
         with col1:
-            st.subheader("Adquisiciones por Estado")
-
+            # Gráfico de Distribución por Estado
             adq_por_estado = df_adq_filtrado.groupby('Estado').size().reset_index(name='Cantidad')
 
             fig_estado = px.pie(
                 adq_por_estado,
                 values='Cantidad',
-                names='Estado',
-                title='Distribución por Estado'
+                names='Estado'
             )
-            fig_estado.update_layout(height=400)
-            st.plotly_chart(fig_estado, use_container_width=True)
+            fig_estado.update_layout(
+                title={
+                    'text': 'Distribución por Estado',
+                    'font': {'size': 18, 'color': '#1f2937', 'family': 'Inter, sans-serif'},
+                    'x': 0.5,
+                    'xanchor': 'center'
+                },
+                font={'size': 14, 'family': 'Inter, sans-serif'},
+                height=450,
+                margin={'t': 60, 'b': 60, 'l': 40, 'r': 40},
+                legend={
+                    'font': {'size': 13},
+                    'orientation': 'h',
+                    'yanchor': 'bottom',
+                    'y': -0.15,
+                    'xanchor': 'center',
+                    'x': 0.5
+                }
+            )
+            fig_estado.update_traces(
+                textposition='inside',
+                textinfo='percent+label',
+                textfont_size=13
+            )
+            st.plotly_chart(fig_estado, use_container_width=True, config=CHART_CONFIG)
 
         with col2:
-            st.subheader("Montos por DDNNTT")
-
+            # Gráfico de Montos por DDNNTT
             montos_por_ue = df_adq_filtrado.groupby('UE').agg({
                 'Monto_Referencial': 'sum',
                 'Monto_Adjudicado': 'sum'
@@ -334,40 +451,65 @@ with tabs[0]:
                 name='PIM',
                 x=montos_por_ue['UE'],
                 y=montos_por_ue['Monto_Referencial'],
-                marker_color='lightcoral'
+                marker_color='#f87171',
+                texttemplate='%{y:,.0f}',
+                textposition='outside',
+                textfont_size=11
             ))
 
             fig_montos.add_trace(go.Bar(
                 name='Monto Adquiridos',
                 x=montos_por_ue['UE'],
                 y=montos_por_ue['Monto_Adjudicado'],
-                marker_color='darkred'
+                marker_color='#991b1b',
+                texttemplate='%{y:,.0f}',
+                textposition='outside',
+                textfont_size=11
             ))
 
             fig_montos.update_layout(
-                xaxis_title='DDNNTT',
-                yaxis_title='Monto (S/)',
+                title={
+                    'text': 'Montos por DDNNTT',
+                    'font': {'size': 18, 'color': '#1f2937', 'family': 'Inter, sans-serif'},
+                    'x': 0.5,
+                    'xanchor': 'center'
+                },
+                font={'size': 14, 'family': 'Inter, sans-serif'},
+                xaxis={
+                    'title': {'text': 'DDNNTT', 'font': {'size': 14}},
+                    'tickfont': {'size': 12}
+                },
+                yaxis={
+                    'title': {'text': 'Monto (S/)', 'font': {'size': 14}},
+                    'tickfont': {'size': 12}
+                },
                 barmode='group',
-                height=400
+                height=450,
+                margin={'t': 60, 'b': 60, 'l': 80, 'r': 40},
+                legend={
+                    'font': {'size': 13},
+                    'orientation': 'h',
+                    'yanchor': 'bottom',
+                    'y': -0.2,
+                    'xanchor': 'center',
+                    'x': 0.5
+                }
             )
 
-            st.plotly_chart(fig_montos, use_container_width=True)
+            st.plotly_chart(fig_montos, use_container_width=True, config=CHART_CONFIG)
 
         st.markdown("---")
 
         col3, col4 = st.columns(2)
 
         with col3:
-            st.subheader("Certificado por Mes")
-
-            # Diccionario de meses en español
+            # Gráfico de Certificado por Mes
             meses_español = {
                 1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril',
                 5: 'Mayo', 6: 'Junio', 7: 'Julio', 8: 'Agosto',
                 9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'
             }
 
-            # Preparar datos: extraer mes de fecha de adjudicación
             df_con_fecha = df_adq_filtrado[df_adq_filtrado['Fecha_Adjudicacion'].notna()].copy()
 
             if len(df_con_fecha) > 0:
@@ -381,18 +523,40 @@ with tabs[0]:
                     gastos_por_mes,
                     x='Mes_Nombre',
                     y='Monto_Adjudicado',
-                    title='Adquisiciones Certificados por Mes',
-                    labels={'Monto_Adjudicado': 'Monto Adquirido (S/)', 'Mes_Nombre': 'Mes'}
+                    text='Monto_Adjudicado'
                 )
-                fig_meses.update_traces(marker_color='steelblue')
-                fig_meses.update_layout(height=400, showlegend=False)
-                st.plotly_chart(fig_meses, use_container_width=True)
+                fig_meses.update_traces(
+                    marker_color='#3b82f6',
+                    texttemplate='S/ %{text:,.0f}',
+                    textposition='outside',
+                    textfont_size=11
+                )
+                fig_meses.update_layout(
+                    title={
+                        'text': 'Certificado por Mes',
+                        'font': {'size': 18, 'color': '#1f2937', 'family': 'Inter, sans-serif'},
+                        'x': 0.5,
+                        'xanchor': 'center'
+                    },
+                    font={'size': 14, 'family': 'Inter, sans-serif'},
+                    xaxis={
+                        'title': {'text': 'Mes', 'font': {'size': 14}},
+                        'tickfont': {'size': 11}
+                    },
+                    yaxis={
+                        'title': {'text': 'Monto Adquirido (S/)', 'font': {'size': 14}},
+                        'tickfont': {'size': 12}
+                    },
+                    height=450,
+                    margin={'t': 60, 'b': 60, 'l': 80, 'r': 40},
+                    showlegend=False
+                )
+                st.plotly_chart(fig_meses, use_container_width=True, config=CHART_CONFIG)
             else:
                 st.info("No hay adquisiciones con fecha de adjudicación para mostrar")
 
         with col4:
-            st.subheader("% Avance por DDNNTT")
-
+            # Gráfico de % Avance por DDNNTT
             avance_por_ue = df_adq_filtrado.groupby('UE').agg({
                 'Monto_Referencial': 'sum',
                 'Monto_Adjudicado': 'sum'
@@ -406,26 +570,44 @@ with tabs[0]:
                     x='Avance_%',
                     y='UE',
                     orientation='h',
-                    title='Porcentaje de Avance por Unidad Ejecutora',
-                    labels={'Avance_%': '% Avance', 'UE': 'Unidad Ejecutora'},
                     text='Avance_%'
                 )
                 fig_avance.update_traces(
-                    marker_color='#2c5aa0',
+                    marker_color='#1e40af',
                     texttemplate='%{text:.1f}%',
-                    textposition='outside'
+                    textposition='outside',
+                    textfont_size=12
                 )
                 fig_avance.update_layout(
-                    height=400,
-                    showlegend=False,
-                    xaxis=dict(range=[0, max(avance_por_ue['Avance_%'].max() * 1.15, 100)])
+                    title={
+                        'text': '% Avance por DDNNTT',
+                        'font': {'size': 18, 'color': '#1f2937', 'family': 'Inter, sans-serif'},
+                        'x': 0.5,
+                        'xanchor': 'center'
+                    },
+                    font={'size': 14, 'family': 'Inter, sans-serif'},
+                    xaxis={
+                        'title': {'text': '% Avance', 'font': {'size': 14}},
+                        'tickfont': {'size': 12},
+                        'range': [0, max(avance_por_ue['Avance_%'].max() * 1.15, 100)]
+                    },
+                    yaxis={
+                        'title': {'text': 'Unidad Ejecutora', 'font': {'size': 14}},
+                        'tickfont': {'size': 12}
+                    },
+                    height=450,
+                    margin={'t': 60, 'b': 60, 'l': 100, 'r': 60},
+                    showlegend=False
                 )
-                st.plotly_chart(fig_avance, use_container_width=True)
+                st.plotly_chart(fig_avance, use_container_width=True, config=CHART_CONFIG)
             else:
                 st.info("No hay datos suficientes para mostrar avance por UE")
 
         st.markdown("---")
 
+        # ============================================================
+        # TABLA DETALLADA
+        # ============================================================
         st.subheader("Tabla Detallada de Adquisiciones")
 
         col_busq, col_sel = st.columns([2, 3])
@@ -474,6 +656,9 @@ with tabs[0]:
 
         st.caption(f"Mostrando {len(df_adq_tabla)} de {len(df_adquisiciones)} adquisiciones totales")
 
+# ============================================================
+# TAB IMPORTAR/EXPORTAR
+# ============================================================
 with tabs[1]:
     st.header("Importar y Exportar Datos")
 
@@ -583,10 +768,5 @@ with tabs[1]:
                     mime="application/pdf"
                 )
 
-st.markdown("---")
-st.markdown(f"""
-<div style='text-align: center; color: gray; padding: 20px;'>
-    <p>Dashboard de Adquisiciones - Sistema de Gestión Presupuestal</p>
-    <p>Última actualización: {datetime.now().strftime("%d/%m/%Y %H:%M")}</p>
-</div>
-""", unsafe_allow_html=True)
+# Footer
+render_footer()
